@@ -1,0 +1,21 @@
+{
+        "windowTitle": "Default Web IRC client",
+        "startupScreen": "welcome",
+        "kiwiServer": "https://localdev.clients.kiwiirc.com/webirc/kiwiirc/",
+        "restricted": true,
+        "theme": "default",
+        "themes": [
+                { "name": "Default", "url": "static/themes/dark" }
+        ],
+        "startupOptions" : {
+                "server": "irc.example.foo",
+                "port": 6697,
+                "tls": true,
+                "direct": false,
+                "channel": "#default",
+                "nick": "guest?"
+        },
+        "embedly": {
+                "key": ""
+        }
+}

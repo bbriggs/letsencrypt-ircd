@@ -1,0 +1,161 @@
+version: '3.1'
+services:
+  nginx-web:
+    image: jwilder/nginx-proxy
+    container_name: ${NGINX_WEB:-nginx-web}
+    restart: always
+    ports:
+      - "${IP:-0.0.0.0}:80:80"
+      - "${IP:-0.0.0.0}:443:443"
+    volumes:
+      - ${NGINX_FILES_PATH:-./data}/conf.d:/etc/nginx/conf.d
+      - ${NGINX_FILES_PATH:-./data}/vhost.d:/etc/nginx/vhost.d
+      - ${NGINX_FILES_PATH:-./data}/html:/usr/share/nginx/html
+      - ${NGINX_FILES_PATH:-./data}/certs:/etc/nginx/certs:ro
+      - ${NGINX_FILES_PATH:-./data}/htpasswd:/etc/nginx/htpasswd:ro
+      - /var/run/docker.sock:/tmp/docker.sock:ro
+    labels:
+      - "com.github.jrcs.letsencrypt_nginx_proxy_companion.nginx_proxy"
+    logging:
+      options:
+        max-size: ${NGINX_WEB_LOG_MAX_SIZE:-4m}
+        max-file: ${NGINX_WEB_LOG_MAX_FILE:-10}
+
+  nginx-letsencrypt:
+    image: jrcs/letsencrypt-nginx-proxy-companion
+    container_name: ${LETS_ENCRYPT:-nginx-letsencrypt}
+    restart: always
+    volumes:
+      - ${NGINX_FILES_PATH:-./data}/conf.d:/etc/nginx/conf.d
+      - ${NGINX_FILES_PATH:-./data}/vhost.d:/etc/nginx/vhost.d
+      - ${NGINX_FILES_PATH:-./data}/html:/usr/share/nginx/html
+      - ${NGINX_FILES_PATH:-./data}/certs:/etc/nginx/certs:rw
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      NGINX_PROXY_CONTAINER: ${NGINX_WEB:-nginx-web}
+    logging:
+      options:
+        max-size: ${NGINX_LETSENCRYPT_LOG_MAX_SIZE:-2m}
+        max-file: ${NGINX_LETSENCRYPT_LOG_MAX_FILE:-10}
+
+  tor:
+    image: goldy/tor-hidden-service
+    build: ./tor-hidden-service
+    links:
+      - kiwiirc
+    environment:
+        # Set mapping ports
+        KIWIIRC_PORTS: 8888:80
+
+    # Keep keys in volumes
+    volumes:
+      - tor-keys:/var/lib/tor/hidden_service/
+    secrets:
+      - source: foo
+        target: foo
+        mode: 0400
+
+  kiwiirc:
+    build: ./kiwiirc
+    container_name: ${KIWIIRC:-kiwiirc}
+    restart: always
+    environment:
+      VIRTUAL_HOST: webchat.irc.example.foo
+      LETENCRYPT_HOST: webchat.irc.example.foo
+      LETSENCRYPT_EMAIL: admin@example.foo
+    logging:
+      options:
+        max-size: ${KIWIIRC_LOG_MAX_SIZE:-4m}
+        max-file: ${KIWIIRC_LOG_MAX_FILE:-10}
+
+  anope:
+    build: ./anope
+    container_name: ${ANOPE:-anope}
+    restart: always
+    volumes:
+      - ./anope/conf:/home/ircd/unrealircd/services/conf
+      - ${ANOPE_DB:-./anope-db}:/home/ircd/unrealircd/services/data/db:rw
+      - ${ANOPE_LOGS:-./anope-logs}:/home/ircd/logs:rw
+    depends_on:
+      - ircd
+    networks:
+      irc:
+        aliases:
+          - services
+    logging:
+      options:
+        max-size: ${NGIRCD_LOG_MAX_SIZE:-4m}
+        max-file: ${NGIRCD_LOG_MAX_FILE:-10}
+
+  redis:
+    restart: always
+    image: redis:alpine
+    container_name: ${REDIS:-anope-redis}
+    ports: 
+      - "6379"
+    volumes:
+      - ${REDIS_DATA:-./redis-data}:/data
+    networks:
+      irc:
+        ipv4_address: 172.16.238.10
+
+  ircd:
+    build: ./unrealircd
+    container_name: ${IRCD:-ircd}
+    restart: always
+    ports:
+      - "${IP:-0.0.0.0}:6667:6667"
+      - "${IP:-0.0.0.0}:6697:6697"
+    volumes:
+      - ${NGINX_FILES_PATH:-./data}/certs:/certs
+      - ./unrealircd/conf:/data/unrealircd/conf
+    environment:
+      VIRTUAL_HOST: irc.example.foo
+      LETSENCRYPT_HOST: irc.example.foo
+      LETSENCRYPT_EMAIL: admin@example.foo
+    networks:
+      irc:
+        aliases:
+          - ircd
+      default:
+        aliases:
+          - ircd
+    logging:
+      options:
+        max-size: ${NGIRCD_LOG_MAX_SIZE:-4m}
+        max-file: ${NGIRCD_LOG_MAX_FILE:-10}
+
+  privatebin:
+    restart: always
+    image: wonderfall/privatebin
+    container_name: ${PRIVATEBIN:-privatebin}
+    environment:
+      VIRTUAL_HOST: bin.example.foo
+      LETSENCRYPT_HOST: bin.example.foo
+      LETSENCRYPT_EMAIL: admin@example.foo
+    volumes:
+      - bin-data:/privatebin/data
+
+  # Set secret for key, use the same name as the service
+secrets:
+  foo:
+    file: ./foo_private_key
+
+volumes:
+  bin-data:
+  tor-keys:
+    driver: local
+
+
+networks:
+  irc:
+    driver: bridge
+    ipam:
+        config:
+          -
+            subnet: 172.16.238.0/24
+  default:
+    external:
+      name: ${NETWORK:-webproxy}
+
+
